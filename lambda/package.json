@@ -4,7 +4,6 @@
   "description": "",
   "main": "lambda_func.js",
   "scripts": {
-    "start": "node -e 'require(\"./lambda_func\").lambda_handler({ ToCountry: \\'US\\',ToState: \\'MA\\'})'",
     "start": "node -e 'require(\"./lambda_func\").test2()'",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -20,6 +19,7 @@
   "homepage": "https://github.com/akaplo-cb/nonstop-train#readme",
   "dependencies": {
     "axios": "^0.19.0",
-    "node-fetch": "^2.6.0"
+    "node-fetch": "^2.6.0",
+    "twilio": "^3.31.1"
   }
 }

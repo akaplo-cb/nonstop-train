@@ -1,6 +1,6 @@
 const axios = require('axios');
 const moment = require('moment');
-const aws = require('aws-sdk');
+// const aws = require('aws-sdk');
 
 exports.lambda_handler = async (event, context) => {
   if (!event || !event.Body) {
@@ -34,10 +34,10 @@ exports.lambda_handler = async (event, context) => {
 
     switch(action.trim().toLowerCase()) {
       case 'start':
-        subscribe(event.From, route, directionID, matchingStop);
+        subscribe(event.From.slice(3), route, directionID, matchingStop);
         break;
       case 'end', 'stop':
-          removeSubscription(event.From, route, directionID, matchingStop);
+          removeSubscription(event.From.slice(3), route, directionID, matchingStop);
           break;
     }
     let retStr = '';
@@ -51,9 +51,15 @@ exports.lambda_handler = async (event, context) => {
 };
 
 const buildAndSendDepartureText = async (phoneNumber, route, stop, directionID) => {
+  const accountSid = process.env.TWILIO_ACCT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const client = require('twilio')(accountSid, authToken);
+
   const departuresStr = await getDeparturesForStopAndRoute(stop, route, directionID);
-  const retStr = buildSMSWithDepartures(stop, route, departuresStr);
+  const retStr = `Next 3 departures for the ${ route } from ${ stop.name }:\n${ departuresStr }`;
   console.log(retStr);
+  client.messages.create({body: retStr, from: '6176572092', to: phoneNumber})
+  return retStr;
 };
 
 const buildSMSWithDepartures = (matchingStop, route, departuresStr, phoneNumber) => {
@@ -130,7 +136,7 @@ exports.test = () => {
 };
 
 exports.test2 = () => {
-  return buildAndSendDepartureText('7817117333', 'Red', {id: 'place-pktrm', name: 'Park Street'}, '1');
+  return buildAndSendDepartureText('7817333094', 'Red', {id: 'place-pktrm', name: 'Park Street'}, '1');
 };
 
 const subscribe = async (userID, route, directionID, matchingStop) => {
