@@ -1,12 +1,17 @@
 const axios = require('axios');
 const moment = require('moment');
-// const aws = require('aws-sdk');
+const aws = require('aws-sdk');
 
 exports.lambda_handler = async (event, context) => {
   if (!event || !event.Body) {
     return handleScheduledExecution();
   }
     const [ action, route, direction, place ] = event.Body.split('%2C');
+    
+    if(action === 'stop' || action ==='end') {
+      removeSubscription(event.From.slice(3));
+      return `<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Message>\nAll done! Until next time.</Message></Response>`;
+    }
 
     let directionID = 0;
 
@@ -36,9 +41,6 @@ exports.lambda_handler = async (event, context) => {
       case 'start':
         subscribe(event.From.slice(3), route, directionID, matchingStop);
         break;
-      case 'end', 'stop':
-          removeSubscription(event.From.slice(3), route, directionID, matchingStop);
-          break;
     }
     let retStr = '';
     if (matchingStop && matchingStop.id) {
@@ -159,7 +161,7 @@ const subscribe = async (userID, route, directionID, matchingStop) => {
   }
 };
 
-const removeSubscription = async (userID, route, directionID, matchingStop) => {
+const removeSubscription = async (userID) => {
   console.log('stopping');
   const dynamo = new aws.DynamoDB.DocumentClient();
   const subscriptionParams = {
@@ -177,7 +179,6 @@ const removeSubscription = async (userID, route, directionID, matchingStop) => {
 };
 
 const handleScheduledExecution = async () => {
-  console.log('retrievingdetails');
   const dynamo = new aws.DynamoDB.DocumentClient();
   const subscriptionParams = {
     TableName: process.env.SUBSCRIPTIONS_TABLE
