@@ -43,7 +43,7 @@ exports.lambda_handler = async (event, context) => {
     let retStr = '';
     if (matchingStop && matchingStop.id) {
       const departuresStr = await getDeparturesForStopAndRoute(matchingStop, route, directionID);
-      retStr = buildSMSWithDepartures(route, matchingStop, departuresStr);
+      retStr = buildSMSWithDepartures(matchingStop, route, departuresStr);
     } else {
       retStr = buildFailureSMS();
     }
@@ -51,8 +51,8 @@ exports.lambda_handler = async (event, context) => {
 };
 
 const buildAndSendDepartureText = async (phoneNumber, route, stop, directionID) => {
-  const departuresStr = await getDeparturesForStopAndRoute(matchingStop, route, directionID);
-  retStr = buildSMSWithDepartures(route, matchingStop, departuresStr);
+  const departuresStr = await getDeparturesForStopAndRoute(stop, route, directionID);
+  const retStr = buildSMSWithDepartures(stop, route, departuresStr);
   console.log(retStr);
 };
 
@@ -67,8 +67,8 @@ const getDeparturesForStopAndRoute = async (stop, route, directionID) => {
   const res = await axios.get(departuresURL);
   const departures = parseDepartures(res.data.data);
   const tripsWithDestinations = await getDestinationsForTrips(departures.map(departure => departure.tripID));
-  console.log(tripsWithDestinations);
   const departuresStr = departures.reduce((acc, curr) => acc + `${ tripsWithDestinations.filter(trip => trip.id === curr.tripID)[0].destination }: ${curr.time}, ${curr.timeUntil}\n`, '');
+
   return departuresStr;
 };
 
@@ -86,7 +86,6 @@ const getMatchingStop = async (userRoute, userPlace) => {
     const lowerInput = userPlace.toLowerCase().split(' ').join('');
     return lowerStopName.includes(lowerInput);
   })[0];
-console.log(matchingStop);
 return matchingStop
 };
 
@@ -130,8 +129,11 @@ exports.test = () => {
   });
 };
 
+exports.test2 = () => {
+  return buildAndSendDepartureText('7817117333', 'Red', {id: 'place-pktrm', name: 'Park Street'}, '1');
+};
+
 const subscribe = async (userID, route, directionID, matchingStop) => {
-  console.log(userID, route, directionID, matchingStop);
   const dynamo = new aws.DynamoDB.DocumentClient();
   const subscriptionParams = {
     Item: {
@@ -168,7 +170,7 @@ const removeSubscription = async (userID, route, directionID, matchingStop) => {
   }
 };
 
-const retrieveSubscriptionDetails = async () => {
+const handleScheduledExecution = async () => {
   console.log('retrievingdetails');
   const dynamo = new aws.DynamoDB.DocumentClient();
   const subscriptionParams = {
@@ -177,9 +179,8 @@ const retrieveSubscriptionDetails = async () => {
   try {
     const res = await dynamo.scan(subscriptionParams).promise();    
     res.Items.forEach((subscription) => {
-      console.log(subscription);
-      const { phone_number, route, stop, direction_id } = subscription;
-      buildAndSendDepartureText(phone_number, route, stop, direction_id);
+      const { phone_number, route, stop_name, stop_id, direction_id } = subscription;
+      buildAndSendDepartureText(phone_number, route, { name: stop_name, id: stop_id }, direction_id);
     });
   } catch(e) {
     console.log(e);

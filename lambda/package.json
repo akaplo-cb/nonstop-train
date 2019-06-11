@@ -5,7 +5,7 @@
   "main": "lambda_func.js",
   "scripts": {
     "start": "node -e 'require(\"./lambda_func\").lambda_handler({ ToCountry: \\'US\\',ToState: \\'MA\\'})'",
-    "start": "node -e 'require(\"./lambda_func\").test()'",
+    "start": "node -e 'require(\"./lambda_func\").test2()'",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
