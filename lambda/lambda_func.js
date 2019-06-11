@@ -1,10 +1,13 @@
 const axios = require('axios');
 const moment = require('moment');
-// const aws = require('aws-sdk');
+const aws = require('aws-sdk');
 
 exports.lambda_handler = async (event, context) => {
+  if (!event || !event.Body) {
+    return handleScheduledExecution();
+  }
     const [ action, route, direction, place ] = event.Body.split('%2C');
-    console.log(action, route, direction, place);
+
     let directionID = 0;
 
     switch (direction.trim().charAt(0).toLowerCase()) {
@@ -31,7 +34,7 @@ exports.lambda_handler = async (event, context) => {
 
     switch(action.trim().toLowerCase()) {
       case 'start':
-        // subscribe(event.From, route, directionID, matchingStop);
+        subscribe(event.From, route, directionID, matchingStop);
         break;
       case 'end', 'stop':
           removeSubscription(event.From, route, directionID, matchingStop);
@@ -39,15 +42,25 @@ exports.lambda_handler = async (event, context) => {
     }
     let retStr = '';
     if (matchingStop && matchingStop.id) {
-      const departuresStr = await getDeparturesForStopAndRoute(matchingStop, route, directionID)
-      console.log(departuresStr);
-      retStr = `<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Message>\nNext 3 departures for the ${ route } from ${ matchingStop.name }:\n${ departuresStr }</Message></Response>`;
+      const departuresStr = await getDeparturesForStopAndRoute(matchingStop, route, directionID);
+      retStr = buildSMSWithDepartures(route, matchingStop, departuresStr);
     } else {
-      retStr = `<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Message>\nUnable to find the stop you requested</Message></Response>`;
+      retStr = buildFailureSMS();
     }
-    console.log(retStr);
     return retStr;
 };
+
+const buildAndSendDepartureText = async (phoneNumber, route, stop, directionID) => {
+  const departuresStr = await getDeparturesForStopAndRoute(matchingStop, route, directionID);
+  retStr = buildSMSWithDepartures(route, matchingStop, departuresStr);
+  console.log(retStr);
+};
+
+const buildSMSWithDepartures = (matchingStop, route, departuresStr, phoneNumber) => {
+  return `<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Message>\nNext 3 departures for the ${ route } from ${ matchingStop.name }:\n${ departuresStr }</Message></Response>`;
+};
+
+const buildFailureSMS = () => `<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Message>\nUnable to find the stop you requested</Message></Response>`;
 
 const getDeparturesForStopAndRoute = async (stop, route, directionID) => {
   const departuresURL = `https://api-v3.mbta.com/predictions/?filter[stop]=${ stop.id }&filter[route]=${ route }&filter[direction_id]=${ directionID }&sort=arrival_time`;
@@ -150,6 +163,24 @@ const removeSubscription = async (userID, route, directionID, matchingStop) => {
   try {
     const dynamoPromise = await dynamo.delete(subscriptionParams).promise();    
     console.log(dynamoPromise)
+  } catch(e) {
+    console.log(e);
+  }
+};
+
+const retrieveSubscriptionDetails = async () => {
+  console.log('retrievingdetails');
+  const dynamo = new aws.DynamoDB.DocumentClient();
+  const subscriptionParams = {
+    TableName: process.env.SUBSCRIPTIONS_TABLE
+  }
+  try {
+    const res = await dynamo.scan(subscriptionParams).promise();    
+    res.Items.forEach((subscription) => {
+      console.log(subscription);
+      const { phone_number, route, stop, direction_id } = subscription;
+      buildAndSendDepartureText(phone_number, route, stop, direction_id);
+    });
   } catch(e) {
     console.log(e);
   }
