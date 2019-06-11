@@ -1,6 +1,6 @@
 const axios = require('axios');
 const moment = require('moment');
-const aws = require('aws-sdk');
+// const aws = require('aws-sdk');
 
 exports.lambda_handler = async (event, context) => {
     const [ action, route, direction, place ] = event.Body.split('%2C');
@@ -27,37 +27,54 @@ exports.lambda_handler = async (event, context) => {
       default: break;
     }
 
-    const stops = await axios.get(`https://api-v3.mbta.com/stops?filter[route]=${ route }`);
-    const matchingStop = stops.data.data.map(s => ({ name: s.attributes.name, id: s.id })).filter(s => {
-      const lowerStopName = s.name.toLowerCase().split(' ').join('');
-      const lowerInput = place.toLowerCase().split(' ').join('');
-      return lowerStopName.includes(lowerInput);
-    })[0];
+    const matchingStop = await getMatchingStop(route, place);
 
     switch(action.trim().toLowerCase()) {
       case 'start':
-        subscribe(event.From, route, directionID, matchingStop);
+        // subscribe(event.From, route, directionID, matchingStop);
         break;
-      case 'end':
+      case 'end', 'stop':
           removeSubscription(event.From, route, directionID, matchingStop);
           break;
     }
     let retStr = '';
     if (matchingStop && matchingStop.id) {
-      const departuresURL = `https://api-v3.mbta.com/predictions/?filter[stop]=${ matchingStop.id }&filter[route]=${ route }&filter[direction_id]=${ directionID }&sort=arrival_time`;
-      const res = await axios.get(departuresURL);
-      const parsed = parseDepartures(res.data.data);
-      const trips = parsed.map(d => axios.get(`https://api-v3.mbta.com/trips/${ d.tripID }`));
-      let y = await Promise.all(trips);
-      y = y.map(z => ({ id: z.data.data.id, destination: z.data.data.attributes.headsign}));
-      console.log(y)
-      const departuresStr = parsed.reduce((acc, curr) => acc + `${ y.filter(z => z.id === curr.tripID)[0].destination }: ${curr.time}, ${curr.timeUntil}\n`, '');
+      const departuresStr = await getDeparturesForStopAndRoute(matchingStop, route, directionID)
+      console.log(departuresStr);
       retStr = `<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Message>\nNext 3 departures for the ${ route } from ${ matchingStop.name }:\n${ departuresStr }</Message></Response>`;
     } else {
       retStr = `<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Message>\nUnable to find the stop you requested</Message></Response>`;
     }
     console.log(retStr);
     return retStr;
+};
+
+const getDeparturesForStopAndRoute = async (stop, route, directionID) => {
+  const departuresURL = `https://api-v3.mbta.com/predictions/?filter[stop]=${ stop.id }&filter[route]=${ route }&filter[direction_id]=${ directionID }&sort=arrival_time`;
+  const res = await axios.get(departuresURL);
+  const departures = parseDepartures(res.data.data);
+  const tripsWithDestinations = await getDestinationsForTrips(departures.map(departure => departure.tripID));
+  console.log(tripsWithDestinations);
+  const departuresStr = departures.reduce((acc, curr) => acc + `${ tripsWithDestinations.filter(trip => trip.id === curr.tripID)[0].destination }: ${curr.time}, ${curr.timeUntil}\n`, '');
+  return departuresStr;
+};
+
+const getDestinationsForTrips = async (tripIDs) => {
+  const pendingTrips = tripIDs.map(id => axios.get(`https://api-v3.mbta.com/trips/${ id }`));
+  const resolvedTrips = await Promise.all(pendingTrips);
+  const tripsWithDestinations = resolvedTrips.map(trip => ({ id: trip.data.data.id, destination: trip.data.data.attributes.headsign}));
+  return tripsWithDestinations;
+};
+
+const getMatchingStop = async (userRoute, userPlace) => {
+  const stops = await axios.get(`https://api-v3.mbta.com/stops?filter[route]=${ userRoute }`);
+  const matchingStop =  stops.data.data.map(s => ({ name: s.attributes.name, id: s.id })).filter(s => {
+    const lowerStopName = s.name.toLowerCase().split(' ').join('');
+    const lowerInput = userPlace.toLowerCase().split(' ').join('');
+    return lowerStopName.includes(lowerInput);
+  })[0];
+console.log(matchingStop);
+return matchingStop
 };
 
 const parseDepartures =  (data) => {
@@ -121,10 +138,11 @@ const subscribe = async (userID, route, directionID, matchingStop) => {
   }
 };
 
-const removeSubscription = (userID, route, directionID, matchingStop) => {
+const removeSubscription = async (userID, route, directionID, matchingStop) => {
+  console.log('stopping');
   const dynamo = new aws.DynamoDB.DocumentClient();
   const subscriptionParams = {
-    Item: {
+    Key: {
       'phone_number': userID
     },
     TableName: process.env.SUBSCRIPTIONS_TABLE
